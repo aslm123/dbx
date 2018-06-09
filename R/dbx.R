@@ -118,13 +118,22 @@ dbxUpdate <- function(conn, table, records, where_cols, batch_size=NULL) {
   quoted_table <- dbQuoteIdentifier(conn, table)
 
   inBatches(records, batch_size, function(batch) {
-    dbWithTransaction(conn, {
-      for (i in 1:nrow(batch)) {
-        row <- batch[i,, drop=FALSE]
-        sql <- paste("UPDATE", quoted_table, "SET", setClause(conn, row[update_cols]), whereClause(conn, row[where_cols]))
-        execute(conn, sql)
-      }
-    })
+    if (isPostgres(conn)) {
+      set_sql <- paste(updateSetClause(conn, update_cols), collapse=", ")
+      where_sql <- paste(updateWhereClause(conn, where_cols), collapse=" AND ")
+      quoted_cols <- lapply(cols, function(x) { dbQuoteIdentifier(conn, as.character(x)) })
+      cols_sql <- paste(quoted_cols, collapse=", ")
+      sql <- paste0("UPDATE ", quoted_table, " AS t SET ", set_sql, " FROM (VALUES ", valuesClause(conn, batch), ") AS c(", cols_sql, ") WHERE ", where_sql)
+      execute(conn, sql)
+    } else {
+      dbWithTransaction(conn, {
+        for (i in 1:nrow(batch)) {
+          row <- batch[i,, drop=FALSE]
+          sql <- paste("UPDATE", quoted_table, "SET", setClause(conn, row[update_cols]), whereClause(conn, row[where_cols]))
+          execute(conn, sql)
+        }
+      })
+    }
   })
 
   TRUE
@@ -218,11 +227,27 @@ dbxDelete <- function(conn, table, where=NULL, batch_size=NULL) {
   TRUE
 }
 
+updateSetClause <- function(conn, cols) {
+  set <- c()
+  for (i in cols) {
+    set <- c(set, paste0(dbQuoteIdentifier(conn, i), " = c.", dbQuoteIdentifier(conn, i)))
+  }
+  set
+}
+
+updateWhereClause <- function(conn, cols) {
+  set <- c()
+  for (i in cols) {
+    set <- c(set, paste0("c.", dbQuoteIdentifier(conn, i), " = t.", dbQuoteIdentifier(conn, i)))
+  }
+  set
+}
+
 equalClause <- function(conn, row) {
   cols <- colnames(row)
   set <- c()
-  for (c in cols) {
-    set <- c(set, paste(dbQuoteIdentifier(conn, c), "=", dbQuoteLiteral(conn, as.character(row[c][[1]]))))
+  for (i in cols) {
+    set <- c(set, paste(dbQuoteIdentifier(conn, i), "=", dbQuoteLiteral(conn, as.character(row[i][[1]]))))
   }
   set
 }
