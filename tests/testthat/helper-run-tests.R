@@ -19,6 +19,12 @@ runTests <- function(db, redshift=FALSE) {
     expect_equal(res, orders[c("id")])
   })
 
+  test_that("select params works", {
+    params <- list(1)
+    res <- dbxSelect(db, "SELECT * FROM orders WHERE id > ? ORDER BY id", params=params)
+    expect_equal(res$city, orders[2, ]$city)
+  })
+
   test_that("empty select works", {
     dbxDelete(db, "events")
     res <- dbxSelect(db, "SELECT * FROM events")
